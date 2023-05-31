@@ -7,16 +7,9 @@ uses
   web3;
 
 type
-  TGateway = (Infura, Alchemy);
+  TProvider = (Alchemy, Infura);
 
-function GetClient(chain: TChain; gateway: TGateway): TWeb3;
-function GetClientEx(chain: TChain; gateway: TGateway): TWeb3Ex;
-
-procedure ShowError(const msg: string); overload;
-procedure ShowError(const err: IError; chain: TChain); overload;
-
-procedure OpenURL(const URL: string);
-procedure OpenTransaction(chain: TChain; tx: TTxHash);
+function GetClient(chain: TChain; provider: TProvider): TWeb3Ex;
 
 implementation
 
@@ -25,33 +18,23 @@ uses
   System.Classes,
   System.IOUtils,
   System.SysUtils,
-  System.UITypes,
-{$IFDEF MSWINDOWS}
-  WinAPI.ShellAPI, WinAPI.Windows,
-{$ENDIF MSWINDOWS}
-{$IFDEF POSIX}
-  Posix.Stdlib,
-{$ENDIF POSIX}
-  // FireMonkey
-  FMX.Dialogs,
+  WinAPI.ShellAPI,
+  WinAPI.Windows,
   // web3
   web3.eth.alchemy,
   web3.eth.infura,
-  web3.eth.tx,
-  web3.http.throttler,
-  web3.json.rpc.https,
   web3.json.rpc.sgc.websockets;
 
-function GetApiKey(gateway: TGateway): string;
-const
-  API_KEY_NAME: array[TGateway] of string = (
-    'MY_INFURA_API_KEY', // Infura
-    'MY_ALCHEMY_API_KEY' // Alchemy
-  );
+function GetApiKey(provider: TProvider): string;
 
   function API_KEY_FILE: string;
+  const
+    API_KEY_NAME: array[TProvider] of string = (
+      'MY_ALCHEMY_API_KEY', // Alchemy
+      'MY_INFURA_API_KEY'   // Infura
+  );
   begin
-    Result := TPath.GetHomePath + TPath.DirectorySeparatorChar + API_KEY_NAME[gateway] + '.TXT';
+    Result := TPath.GetHomePath + TPath.DirectorySeparatorChar + API_KEY_NAME[provider] + '.TXT';
   end;
 
 var
@@ -85,117 +68,32 @@ begin
     CloseHandle(SEI.hProcess);
   end;
 
-  Result := GetApiKey(gateway);
+  Result := GetApiKey(provider);
 end;
 
-function GetClient(chain: TChain; gateway: TGateway): TWeb3;
-
-  function endpoint: string;
-  begin
-    case gateway of
-      Infura:
-        Result := web3.eth.infura.endpoint(chain, HTTPS, GetApiKey(Infura));
-      Alchemy:
-        Result := web3.eth.alchemy.endpoint(chain, HTTPS, GetApiKey(Alchemy));
-    end;
-  end;
-
-  function CreateProtocol(rps: TReqPerSec): IJsonRpc;
-  begin
-    if rps > 0 then
-      Result := TJsonRpcHttps.Create(TThrottler.Create(rps))
-    else
-      Result := TJsonRpcHttps.Create;
-  end;
-
-const
-  REQUESTS_PER_SECOND: array[TGateway] of TReqPerSec = (
-    10, // Infura
-    0   // Alchemy
-  );
+function GetEndpoint(chain: TChain; provider: TProvider; protocol: TTransport): string;
 begin
-  Result := TWeb3.Create(
-    chain,
-    endpoint,
-    CreateProtocol(REQUESTS_PER_SECOND[gateway])
-  );
+  case provider of
+    Alchemy:
+      Result := web3.eth.alchemy.endpoint(chain, protocol, GetApiKey(Alchemy), core).Value;
+    Infura:
+      Result := web3.eth.infura.endpoint(chain, protocol, GetApiKey(Infura)).Value;
+  end;
 end;
 
-function GetClientEx(chain: TChain; gateway: TGateway): TWeb3Ex;
-
-  function endpoint: string;
-  begin
-    case gateway of
-      Infura:
-        Result := web3.eth.infura.endpoint(chain, WebSocket, GetApiKey(Infura));
-      Alchemy:
-        Result := web3.eth.alchemy.endpoint(chain, WebSocket, GetApiKey(Alchemy));
-    end;
-  end;
-
+function GetClient(chain: TChain; provider: TProvider): TWeb3Ex;
 const
-  SECURITY: array[TGateway] of TSecurity = (
-    TLS_12,   // Infura
-    Automatic // Alchemy
+  SECURITY: array[TProvider] of TSecurity = (
+    Automatic, // Alchemy
+    TLS_12     // Infura
   );
 begin
   Result := TWeb3Ex.Create(
-    chain,
-    endpoint,
+    chain.SetRPC(WebSocket, GetEndpoint(chain, provider, WebSocket)),
     TJsonRpcSgcWebSocket.Create,
-    SECURITY[gateway]
+    TProxy.Disabled,
+    SECURITY[provider]
   );
-end;
-
-procedure ShowError(const msg: string);
-begin
-  TThread.Synchronize(nil, procedure
-  begin
-{$WARN SYMBOL_DEPRECATED OFF}
-    MessageDlg(msg, TMsgDlgType.mtError, [TMsgDlgBtn.mbOK], 0);
-{$WARN SYMBOL_DEPRECATED DEFAULT}
-  end);
-end;
-
-procedure ShowError(const err: IError; chain: TChain);
-var
-  txError: ITxError;
-begin
-  if Supports(err, ISignatureDenied) then
-    EXIT;
-  TThread.Synchronize(nil, procedure
-  begin
-{$WARN SYMBOL_DEPRECATED OFF}
-    if Supports(err, ITxError, txError) then
-    begin
-      if MessageDlg(
-        Format(
-          '%s. Would you like to view this transaction on etherscan?',
-          [err.Message]
-        ),
-        TMsgDlgType.mtError, [TMsgDlgBtn.mbYes, TMsgDlgBtn.mbNo], 0
-      ) = mrYes then
-        OpenTransaction(chain, txError.Hash);
-      EXIT;
-    end;
-    MessageDlg(err.Message, TMsgDlgType.mtError, [TMsgDlgBtn.mbOK], 0);
-{$WARN SYMBOL_DEPRECATED DEFAULT}
-  end);
-end;
-
-procedure OpenURL(const URL: string);
-begin
-{$IFDEF MSWINDOWS}
-  ShellExecute(0, 'open', PChar(URL), nil, nil, SW_SHOWNORMAL);
-{$ENDIF MSWINDOWS}
-{$IFDEF POSIX}
-  _system(PAnsiChar('open ' + AnsiString(URL)));
-{$ENDIF POSIX}
-end;
-
-procedure OpenTransaction(chain: TChain; tx: TTxHash);
-begin
-  OpenURL(chain.BlockExplorerURL + '/tx/' + string(tx));
 end;
 
 end.

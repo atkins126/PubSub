@@ -1,5 +1,9 @@
+[![GitHub release](https://img.shields.io/github/release/svanas/PubSub)](https://github.com/svanas/PubSub/releases/latest)
+[![GitHub license](https://img.shields.io/github/license/svanas/PubSub)](https://github.com/svanas/PubSub/blob/main/LICENSE)
+[![Windows](https://img.shields.io/badge/os-Windows-green)](https://github.com/svanas/PubSub/releases/latest/download/Windows.zip)
+
 # PubSub
-PubSub is a simple "Hello World" example project, demonstrating how to subscribe to an Ethereum gateway and get notified every time a new block got mined.
+PubSub is a simple "Hello World" example project, demonstrating how to subscribe to an Ethereum RPC provider and get notified every time a new block got mined.
 
 This project depends on...
 1. [Delphereum](https://github.com/svanas/delphereum), a web3 implementation for the Delphi programming language.
